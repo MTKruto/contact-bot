@@ -3,7 +3,7 @@ import { StorageDenoKV } from "mtkruto/storage/1_storage_deno_kv.ts";
 import env from "./env.ts";
 
 const kv = await Deno.openKv();
-const client = new Client(new StorageDenoKV("./client"), env.API_ID, env.API_HASH, { initialDc: "1" }); // the initialDc parameters makes sure that we connect to prod servers
+const client = new Client(new StorageDenoKV(), env.API_ID, env.API_HASH, { initialDc: "1" }); // the initialDc parameters makes sure that we connect to prod servers
 
 client.on("connectionState", async ({ connectionState }) => { // this is called when the client’s connection state is changed, and should be applied before starting the client
   if (connectionState == "not-connected") {
@@ -30,6 +30,20 @@ client.on("message", async ({ message }, next) => {
   }
   const forwardedMessage = await client.forwardMessage(message.chat.id, env.CHAT_ID, message.id);
   await kv.set(["incoming_messages", forwardedMessage.id], [message.chat.id, message.id]);
+  await kv.set(["message_references", message.id], forwardedMessage.id);
+});
+
+client.on("deletedMessages", async ({ deletedMessages }) => {
+  for (const message of deletedMessages) {
+    if (message.chat.type != "private") {
+      continue;
+    }
+    const { value: ref } = await kv.get<number>(["message_references", message.id]);
+    if (!ref) {
+      continue;
+    }
+    await client.sendMessage(env.CHAT_ID, "This message was deleted.", { replyToMessageId: ref });
+  }
 });
 
 client.on("editedMessage", async ({ editedMessage }, next) => {
