@@ -17,6 +17,19 @@ client.on("connectionState", async ({ connectionState }) => { // this is called 
 
 await client.start(env.BOT_TOKEN);
 
+client.on("deletedMessages", async ({ deletedMessages }) => {
+  for (const message of deletedMessages) {
+    if (message.chat.type != "private") {
+      continue;
+    }
+    const { value: ref } = await kv.get<number>(["message_references", message.id]);
+    if (!ref) {
+      continue;
+    }
+    await client.sendMessage(env.CHAT_ID, "This message was deleted.", { replyToMessageId: ref });
+  }
+});
+
 client.use(async (update, next) => {
   const msg = update.editedMessage ?? update.message;
   if (msg?.out === false) { // only handle incoming messages, outgoing ones are not interesting
@@ -31,19 +44,6 @@ client.on("message", async ({ message }, next) => {
   const forwardedMessage = await client.forwardMessage(message.chat.id, env.CHAT_ID, message.id);
   await kv.set(["incoming_messages", forwardedMessage.id], [message.chat.id, message.id]);
   await kv.set(["message_references", message.id], forwardedMessage.id);
-});
-
-client.on("deletedMessages", async ({ deletedMessages }) => {
-  for (const message of deletedMessages) {
-    if (message.chat.type != "private") {
-      continue;
-    }
-    const { value: ref } = await kv.get<number>(["message_references", message.id]);
-    if (!ref) {
-      continue;
-    }
-    await client.sendMessage(env.CHAT_ID, "This message was deleted.", { replyToMessageId: ref });
-  }
 });
 
 client.on("editedMessage", async ({ editedMessage }, next) => {
