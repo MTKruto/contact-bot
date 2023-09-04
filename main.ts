@@ -1,4 +1,4 @@
-import { Client } from "mtkruto/mod.ts";
+import { Client, types } from "mtkruto/mod.ts";
 import { StorageDenoKV } from "mtkruto/storage/1_storage_deno_kv.ts";
 import env from "./env.ts";
 
@@ -18,6 +18,7 @@ client.on("connectionState", async ({ connectionState }) => { // this is called 
 await client.start(env.BOT_TOKEN);
 
 client.on("deletedMessages", async ({ deletedMessages }) => {
+  const deleted = new Array<number>();
   for (const message of deletedMessages) {
     if (message.chat.type != "private") {
       continue;
@@ -26,7 +27,16 @@ client.on("deletedMessages", async ({ deletedMessages }) => {
     if (!ref) {
       continue;
     }
-    await client.sendMessage(env.CHAT_ID, "This message was deleted.", { replyToMessageId: ref });
+    deleted.push(ref);
+  }
+  if (deleted.length == 1) {
+    await client.sendMessage(env.CHAT_ID, "This message was deleted.", { replyToMessageId: deleted[0] });
+  } else if (deleted.length > 1) {
+    const { channelId } = (await client.getInputPeer(env.CHAT_ID)) as types.InputPeerChannel;
+    await client.sendMessage(
+      env.CHAT_ID,
+      "The following messages were deleted:\n\n" + deleted.map((v) => `https://t.me/c/${channelId}/${v}`).join("\n"),
+    );
   }
 });
 
