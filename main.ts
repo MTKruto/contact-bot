@@ -3,13 +3,17 @@ import { StorageDenoKV } from "mtkruto/storage/1_storage_deno_kv.ts";
 import env from "./env.ts";
 
 const kv = await Deno.openKv();
-const client = new Client(new StorageDenoKV(), env.API_ID, env.API_HASH, { initialDc: "1" }); // the initialDc parameters makes sure that we connect to prod servers
+const client = new Client(new StorageDenoKV("./client"), env.API_ID, env.API_HASH, { initialDc: "1" }); // the initialDc parameters makes sure that we connect to prod servers
 
 client.on("connectionState", async ({ connectionState }) => { // this is called when the client’s connection state is changed, and should be applied before starting the client
   if (connectionState == "not-connected") {
     await new Promise((r) => setTimeout(r, 5000)); // try reconnecting after 5 seconds
     await client.start();
-  } else if (connectionState == "ready") {
+  }
+});
+
+client.on("authorizationState", async ({ authorizationState: { authorized } }) => { // this is called when the client’s connection state is changed, and should be applied before authorizing the client
+  if (authorized) {
     const me = await client.getMe();
     console.log(`Running as @${me.username}...`);
   }
