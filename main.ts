@@ -1,29 +1,24 @@
-import { Client, types } from "mtkruto/mod.ts";
+import { Client } from "mtkruto/mod.ts";
 import { StorageDenoKV } from "mtkruto/storage/1_storage_deno_kv.ts";
 import env from "./env.ts";
 
 const kv = await Deno.openKv();
-const client = new Client(new StorageDenoKV(), env.API_ID, env.API_HASH, { initialDc: "1" }); // the initialDc parameters makes sure that we connect to prod servers
-
-client.on("connectionState", async ({ connectionState }) => { // this is called when the client’s connection state is changed, and should be applied before starting the client
-  if (connectionState == "notConnected") {
-    await new Promise((r) => setTimeout(r, 5000)); // try reconnecting after 5 seconds
-    await client.start();
-  }
-});
-
-client.on("authorizationState", async ({ authorizationState: { authorized } }) => { // this is called when the client’s connection state is changed, and should be applied before authorizing the client
-  if (authorized) {
-    const me = await client.getMe();
-    console.log(`Running as @${me.username}...`);
-  }
-});
-
+const client = new Client(new StorageDenoKV(), env.API_ID, env.API_HASH);
 await client.start(env.BOT_TOKEN);
 
+const me = await client.getMe();
+console.log(`Running as @${me.username}...`);
+
 client.on("deletedMessages", async ({ deletedMessages }) => {
+  const messageMap: Record<number, number[]> = {};
+  for (const { chatId, messageId } of deletedMessages) {
+    messageMap[chatId] ??= [];
+    messageMap[chatId].push(messageId);
+  }
+  const messages = await Promise.all(Object.entries(messageMap).map(([k, v]) => client.getMessages(k, v)));
+
   const deleted = new Array<number>();
-  for (const message of deletedMessages) {
+  for (const message of messages.flat()) {
     if (message.chat.type != "private") {
       continue;
     }
@@ -36,7 +31,11 @@ client.on("deletedMessages", async ({ deletedMessages }) => {
   if (deleted.length == 1) {
     await client.sendMessage(env.CHAT_ID, "This message was deleted.", { replyToMessageId: deleted[0] });
   } else if (deleted.length > 1) {
-    const { channelId } = (await client.getInputPeer(env.CHAT_ID)) as types.InputPeerChannel;
+    const peer = await client.getInputPeer(env.CHAT_ID);
+    if (!("channel_id" in peer)) {
+      return;
+    }
+    const channelId = peer.channel_id;
     await client.sendMessage(
       env.CHAT_ID,
       "The following messages were deleted:\n\n" + deleted.map((v) => `https://t.me/c/${channelId}/${v}`).join("\n"),
@@ -51,51 +50,56 @@ client.use(async (update, next) => {
   }
 });
 
-client.on("message", async ({ message }, next) => {
-  if (message.chat.type != "private") {
+client.on("message", async (ctx, next) => {
+  if (ctx.chat.type != "private") {
     return next();
   }
-  const forwardedMessage = await client.forwardMessage(message.chat.id, env.CHAT_ID, message.id);
-  await kv.set(["incoming_messages", forwardedMessage.id], [message.chat.id, message.id]);
-  await kv.set(["message_references", message.id], forwardedMessage.id);
+  const forwardedMessage = await ctx.forward(env.CHAT_ID);
+  await kv.set(["incoming_messages", forwardedMessage.id], [ctx.chat.id, ctx.msg.id]);
+  await kv.set(["message_references", ctx.msg.id], forwardedMessage.id);
 });
 
-client.on("editedMessage", async ({ editedMessage }, next) => {
-  if (editedMessage.chat.type != "private") {
+client.on("editedMessage", async (ctx, next) => {
+  if (ctx.msg.chat.type != "private") {
     return next();
   }
-  const forwardedMessage = await client.forwardMessage(editedMessage.chat.id, env.CHAT_ID, editedMessage.id);
-  await kv.set(["incoming_messages", forwardedMessage.id], [editedMessage.chat.id, editedMessage.id]);
+  const forwardedMessage = await client.forwardMessage(ctx.chat.id, env.CHAT_ID, ctx.msg.id);
+  await kv.set(["incoming_messages", forwardedMessage.id], [ctx.chat.id, ctx.msg.id]);
 });
 
-client.use(async (update, next) => {
-  const msg = update.editedMessage ?? update.message;
-  if (msg?.chat.type == "supergroup" && msg.chat.id == env.CHAT_ID) {
+client.use(async (ctx, next) => {
+  if (ctx.msg?.chat.type == "supergroup" && ctx.msg.chat.id == env.CHAT_ID) {
     await next();
   }
 });
 
-client.on(["message", "text", "replyToMessage"], async ({ message }) => {
+client.on("message:text", async (ctx, next) => {
+  if (!ctx.msg.replyToMessage) {
+    return next();
+  }
   const { value } = await kv.get<[number, number]>([
     "incoming_messages",
-    message.replyToMessage.id,
+    ctx.msg.replyToMessage.id,
   ]);
   if (value == null) {
     return;
   }
   const [chatId, messageId] = value;
-  const sentMessage = await client.sendMessage(chatId, message.text, { replyToMessageId: messageId });
-  await kv.set(["outgoing_messages", message.id], [chatId, sentMessage.id]);
+  const sentMessage = await ctx.client.sendMessage(chatId, ctx.msg.text, { replyToMessageId: messageId });
+  await kv.set(["outgoing_messages", ctx.msg.id], [chatId, sentMessage.id]);
 });
 
-client.on(["editedMessage", "text", "replyToMessage"], async ({ editedMessage }) => {
+client.on("editedMessage:text", async (ctx) => {
+  if (!ctx.msg.replyToMessage) {
+    return;
+  }
   const { value } = await kv.get<[number, number]>([
     "outgoing_messages",
-    editedMessage.id,
+    ctx.msg.id,
   ]);
   if (value == null) {
     return;
   }
   const [chatId, messageId] = value;
-  await client.editMessageText(chatId, messageId, editedMessage.text);
+  await client.editMessageText(chatId, messageId, ctx.msg.text);
 });
