@@ -2,12 +2,20 @@ import { Client } from "mtkruto/mod.ts";
 import { StorageDenoKV } from "mtkruto/storage/1_storage_deno_kv.ts";
 import env from "./env.ts";
 
-const kv = await Deno.openKv();
-const client = new Client(new StorageDenoKV(), env.API_ID, env.API_HASH);
+const kv = await Deno.openKv("./a");
+const client = new Client(new StorageDenoKV("./a"), env.API_ID, env.API_HASH);
 await client.start(env.BOT_TOKEN);
 
 const me = await client.getMe();
 console.log(`Running as @${me.username}...`);
+
+client.use(async (_ctx, next) => {
+  try {
+    await next();
+  } catch (err) {
+    console.error(err);
+  }
+});
 
 client.on("deletedMessages", async (ctx) => {
   const messageMap: Record<number, number[]> = {};
@@ -43,8 +51,10 @@ client.on("deletedMessages", async (ctx) => {
   }
 });
 
-client.on("messageReactions", async (ctx) => {
-  if (ctx.messageReactions.chat.id != env.CHAT_ID) {
+client.on("messageReactions", async (ctx, next) => {
+  if (ctx.chat.type == "private") {
+    return next();
+  } else if (ctx.messageReactions.chat.id != env.CHAT_ID) {
     return;
   }
   if (!ctx.messageReactions.user) {
@@ -66,20 +76,30 @@ client.on("messageReactions", async (ctx) => {
   await client.setReactions(chatId, messageId, ctx.messageReactions.newReactions);
 });
 
+client.on("messageReactions", async (ctx) => {
+  const { value } = await kv.get<number>(["outgoing_message_references", ctx.chat.id, ctx.messageReactions.messageId]);
+  if (value == null) {
+    return;
+  }
+  await ctx.client.setReactions(env.CHAT_ID, value, ctx.messageReactions.newReactions);
+});
+
 client.on("message", async (ctx, next) => {
   if (ctx.chat.type != "private") {
     return next();
   }
   const forwardedMessage = await ctx.forward(env.CHAT_ID);
-  await kv.set(["incoming_messages", forwardedMessage.id], [ctx.chat.id, ctx.msg.id]);
-  await kv.set(["message_references", ctx.msg.id], forwardedMessage.id);
+  await kv.atomic()
+    .set(["incoming_messages", forwardedMessage.id], [ctx.chat.id, ctx.msg.id])
+    .set(["message_references", ctx.msg.id], forwardedMessage.id)
+    .commit();
 });
 
 client.on("editedMessage", async (ctx, next) => {
   if (ctx.msg.chat.type != "private") {
     return next();
   }
-  const forwardedMessage = await client.forwardMessage(ctx.chat.id, env.CHAT_ID, ctx.msg.id);
+  const forwardedMessage = await ctx.forward(env.CHAT_ID);
   await kv.set(["incoming_messages", forwardedMessage.id], [ctx.chat.id, ctx.msg.id]);
 });
 
@@ -102,7 +122,7 @@ client.on("message:text", async (ctx, next) => {
   }
   const [chatId, messageId] = value;
   const sentMessage = await ctx.client.sendMessage(chatId, ctx.msg.text, { replyToMessageId: messageId });
-  await kv.set(["outgoing_messages", ctx.msg.id], [chatId, sentMessage.id]);
+  await kv.set(["outgoing_message_references", chatId, sentMessage.id], ctx.msg.id);
 });
 
 client.on("editedMessage:text", async (ctx) => {
@@ -118,4 +138,5 @@ client.on("editedMessage:text", async (ctx) => {
   }
   const [chatId, messageId] = value;
   await client.editMessageText(chatId, messageId, ctx.msg.text);
+  await kv.set(["outgoing_message_references", chatId, messageId], ctx.msg.id);
 });

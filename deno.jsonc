@@ -1,11 +1,12 @@
 {
+  "lock": false,
   "fmt": {
     "lineWidth": 120
   },
   "imports": {
     "std/": "https://deno.land/std@0.210.0/",
     "envalid/": "https://deno.land/x/envalid@0.1.2/",
-    "mtkruto/": "https://raw.githubusercontent.com/MTKruto/MTKruto/a9a05b26ef03bf85175694df5f3c3773982007ea/"
+    "mtkruto/": "https://raw.githubusercontent.com/MTKruto/MTKruto/05381b3b29699390fa57ecf999c3ecb94b076e7e/"
   },
   "tasks": {
     // Note that the `--unstable` flag is needed for Deno KV. MTKruto does not require it.
