@@ -9,9 +9,9 @@ await client.start(env.BOT_TOKEN);
 const me = await client.getMe();
 console.log(`Running as @${me.username}...`);
 
-client.on("deletedMessages", async ({ deletedMessages }) => {
+client.on("deletedMessages", async (ctx) => {
   const messageMap: Record<number, number[]> = {};
-  for (const { chatId, messageId } of deletedMessages) {
+  for (const { chatId, messageId } of ctx.deletedMessages) {
     messageMap[chatId] ??= [];
     messageMap[chatId].push(messageId);
   }
@@ -43,11 +43,27 @@ client.on("deletedMessages", async ({ deletedMessages }) => {
   }
 });
 
-client.use(async (update, next) => {
-  const msg = update.editedMessage ?? update.message;
-  if (msg?.out === false) { // only handle incoming messages, outgoing ones are not interesting
-    await next();
+client.on("messageReactions", async (ctx) => {
+  if (ctx.messageReactions.chat.id != env.CHAT_ID) {
+    return;
   }
+  if (!ctx.messageReactions.user) {
+    return;
+  }
+  const { value } = await kv.get<[number, number]>(["incoming_messages", ctx.messageReactions.messageId]);
+  if (value == null) {
+    return;
+  }
+
+  const maybeUser = await kv.get<number>(["reaction_actors", ctx.messageReactions.messageId]);
+  if (maybeUser.value == null) {
+    await kv.set(["reaction_actors", ctx.messageReactions.messageId], ctx.messageReactions.user.id);
+  } else if (maybeUser.value != ctx.messageReactions.user.id) {
+    return;
+  }
+
+  const [chatId, messageId] = value;
+  await client.setReactions(chatId, messageId, ctx.messageReactions.newReactions);
 });
 
 client.on("message", async (ctx, next) => {
