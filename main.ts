@@ -73,7 +73,7 @@ client.on("messageReactions", async (ctx, next) => {
   }
 
   const [chatId, messageId] = value;
-  await client.setReactions(chatId, messageId, ctx.messageReactions.newReactions);
+  await client.setReactions(chatId, messageId, ctx.messageReactions.newReactions.slice(0, 1));
 });
 
 client.on("messageReactions", async (ctx) => {
@@ -81,7 +81,7 @@ client.on("messageReactions", async (ctx) => {
   if (value == null) {
     return;
   }
-  await ctx.client.setReactions(env.CHAT_ID, value, ctx.messageReactions.newReactions);
+  await ctx.client.setReactions(env.CHAT_ID, value, ctx.messageReactions.newReactions.slice(0, 1));
 });
 
 client.on("message", async (ctx, next) => {
