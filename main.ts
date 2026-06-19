@@ -1,10 +1,10 @@
-import { Client } from "mtkruto/mod.ts";
-import { StorageDenoKV } from "mtkruto/storage/1_storage_deno_kv.ts";
+import { Client } from "@mtkruto/mtkruto";
+import { StorageDenoKV } from "@mtkruto/mtkruto/storage-deno-kv";
 import env from "./env.ts";
 
-const kv = await Deno.openKv("./a");
-const client = new Client(new StorageDenoKV("./a"), env.API_ID, env.API_HASH);
-await client.start(env.BOT_TOKEN);
+const kv = await Deno.openKv("./data");
+const client = new Client({ storage: new StorageDenoKV("./data"), apiId: env.API_ID, apiHash: env.API_HASH });
+await client.start({ botToken: env.BOT_TOKEN });
 
 const me = await client.getMe();
 console.log(`Running as @${me.username}...`);
@@ -19,7 +19,7 @@ client.use(async (_ctx, next) => {
 
 client.on("deletedMessages", async (ctx) => {
   const messageMap: Record<number, number[]> = {};
-  for (const { chatId, messageId } of ctx.deletedMessages) {
+  for (const { chatId, messageId } of ctx.update.deletedMessages) {
     messageMap[chatId] ??= [];
     messageMap[chatId].push(messageId);
   }
@@ -37,7 +37,9 @@ client.on("deletedMessages", async (ctx) => {
     deleted.push(ref);
   }
   if (deleted.length == 1) {
-    await client.sendMessage(env.CHAT_ID, "This message was deleted.", { replyToMessageId: deleted[0] });
+    await client.sendMessage(env.CHAT_ID, "This message was deleted.", {
+      replyTo: { type: "message", messageId: deleted[0] },
+    });
   } else if (deleted.length > 1) {
     const peer = await client.getInputPeer(env.CHAT_ID);
     if (!("channel_id" in peer)) {
@@ -54,34 +56,38 @@ client.on("deletedMessages", async (ctx) => {
 client.on("messageReactions", async (ctx, next) => {
   if (ctx.chat.type == "private") {
     return next();
-  } else if (ctx.messageReactions.chat.id != env.CHAT_ID) {
+  } else if (ctx.update.messageReactions.chat.id != env.CHAT_ID) {
     return;
   }
-  if (!ctx.messageReactions.user) {
+  if (!ctx.update.messageReactions.user) {
     return;
   }
-  const { value } = await kv.get<[number, number]>(["incoming_messages", ctx.messageReactions.messageId]);
+  const { value } = await kv.get<[number, number]>(["incoming_messages", ctx.update.messageReactions.messageId]);
   if (value == null) {
     return;
   }
 
-  const maybeUser = await kv.get<number>(["reaction_actors", ctx.messageReactions.messageId]);
+  const maybeUser = await kv.get<number>(["reaction_actors", ctx.update.messageReactions.messageId]);
   if (maybeUser.value == null) {
-    await kv.set(["reaction_actors", ctx.messageReactions.messageId], ctx.messageReactions.user.id);
-  } else if (maybeUser.value != ctx.messageReactions.user.id) {
+    await kv.set(["reaction_actors", ctx.update.messageReactions.messageId], ctx.update.messageReactions.user.id);
+  } else if (maybeUser.value != ctx.update.messageReactions.user.id) {
     return;
   }
 
   const [chatId, messageId] = value;
-  await client.setReactions(chatId, messageId, ctx.messageReactions.newReactions.slice(0, 1));
+  await client.setReactions(chatId, messageId, ctx.update.messageReactions.newReactions.slice(0, 1));
 });
 
 client.on("messageReactions", async (ctx) => {
-  const { value } = await kv.get<number>(["outgoing_message_references", ctx.chat.id, ctx.messageReactions.messageId]);
+  const { value } = await kv.get<number>([
+    "outgoing_message_references",
+    ctx.chat.id,
+    ctx.update.messageReactions.messageId,
+  ]);
   if (value == null) {
     return;
   }
-  await ctx.client.setReactions(env.CHAT_ID, value, ctx.messageReactions.newReactions.slice(0, 1));
+  await ctx.client.setReactions(env.CHAT_ID, value, ctx.update.messageReactions.newReactions.slice(0, 1));
 });
 
 client.on("message", async (ctx, next) => {
@@ -121,7 +127,7 @@ client.on("message:text", async (ctx, next) => {
     return;
   }
   const [chatId, messageId] = value;
-  const sentMessage = await ctx.client.sendMessage(chatId, ctx.msg.text, { replyToMessageId: messageId });
+  const sentMessage = await ctx.client.sendMessage(chatId, ctx.msg.text, { replyTo: { type: "message", messageId } });
   await kv.set(["outgoing_message_references", chatId, sentMessage.id], ctx.msg.id);
 });
 
