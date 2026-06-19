@@ -2,7 +2,7 @@ FROM denoland/deno
 
 WORKDIR /app
 
-COPY deno.json deno.lock ./
+COPY deno.jsonc deno.lock ./
 
 RUN deno install
 
