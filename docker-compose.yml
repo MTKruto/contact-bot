@@ -1,0 +1,7 @@
+services:
+  bots:
+    build: .
+    restart: always
+    env_file: .env
+    volumes:
+      - ./data/:/app/data/
