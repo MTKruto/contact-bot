@@ -10,7 +10,7 @@
   },
   "tasks": {
     // Note that the `--unstable` flag is needed for Deno KV. MTKruto does not require it.
-    "start": "deno run --allow-env --allow-net --allow-read --unstable main.ts"
+    "start": "deno run --allow-env --allow-net --allow-read --allow-write main.ts"
   },
   "unstable": ["kv"]
 }
