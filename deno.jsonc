@@ -1,12 +1,11 @@
 {
-  "lock": false,
+  "lock": true,
   "fmt": {
     "lineWidth": 120
   },
   "imports": {
     "@mtkruto/mtkruto": "jsr:@mtkruto/mtkruto@^0.161.0",
     "@std/dotenv": "jsr:@std/dotenv@^0.225.7",
-    "std/": "https://deno.land/std@0.210.0/",
     "envalid/": "https://deno.land/x/envalid@0.1.2/"
   },
   "tasks": {
